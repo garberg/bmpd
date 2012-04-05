@@ -1,0 +1,20 @@
+#! /usr/bin/python
+#
+# bmpd - a BGP Monitoring Protocol daemon
+#
+
+import logging
+
+
+if __name__ == '__main__':
+    """ GO GO GO!
+    """
+
+    # parse arguments
+    
+
+    # configure logging
+    logging.basicConfig()
+
+
+    # start receiver
