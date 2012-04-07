@@ -3,7 +3,14 @@
 # bmpd - a BGP Monitoring Protocol daemon
 #
 
+import sys
+import optparse
 import logging
+
+import psycopg2
+from twisted.internet import reactor
+
+from bmp.bmpprotocol import BMPFactory
 
 
 if __name__ == '__main__':
@@ -11,10 +18,39 @@ if __name__ == '__main__':
     """
 
     # parse arguments
-    
+    parser = optparse.OptionParser()
+    parser.add_option('-f', '--foreground', dest='foreground',
+        action="store_true", default=False, help="Don't daemonize process")
+    parser.add_option('-d', '--debug', dest='debug',
+        action="store_true", default=False, help="Run process in debug mode")
+    parser.add_option('-p', '--port', dest='port', default=20000,
+        help='Port to listen to')
+
+    (options, arguments) = parser.parse_args()
 
     # configure logging
     logging.basicConfig()
+    logger = logging.getLogger()
+    if options.debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
+
+
+    logger.info("Starting bmpd")
+
+
+    # daemonize?
+    if not options.foreground:
+        print >> sys.stderr, "Must run in foreground."
+        sys.exit(1)
+
+
+    # create database connection
+    conn = psycopg2.connect(host='localhost', database='bmp',
+        user='bmp', password='bmp')
 
 
     # start receiver
+    reactor.listenTCP(options.port, BMPFactory(conn))
+    reactor.run()

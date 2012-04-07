@@ -1,29 +1,9 @@
-#!/usr/bin/python2.5  # pylint: disable-msg=C6301,C6409
-#
-# Copyright 2009 Google Inc.
-# All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""BGP Monitoring Protocol - various constants."""
-
-__author__ = "sstuart@google.com (Stephen Stuart)"
-__version__ = "0.1"
-
-import socket
 import struct
-import time
-import indent
+import socket
+import logging
+from datetime import datetime
+
+from pybgp import proto
 
 # The length of the fixed header part of a BMP message.
 #
@@ -68,72 +48,158 @@ PEER_DOWN_REASON_STR = {1: "Local system closed session, notification sent",
                         3: "Remote system closed session, notification sent",
                         4: "Remote system closed session, no notification"}
 
-
-def ParseBmpHeader(header, verbose=False):
-  """Parse a BMP header.
-
-  Args:
-    header: array containing BMP message header.
-    verbose: be chatty, or not.
-
-  Returns:
-    An int indicating the type of message that follows the header,
-    and a list of strings to print.
-
-  Raises:
-    ValueError: an unexpected value was found in the message
-  """
-
-  indent_str = indent.IndentLevel(indent.BMP_HEADER_INDENT)
-  print_msg = []
-
-  version, msg_type, peer_type, peer_flags = struct.unpack(">BBBB",
-                                                           header[0:4])
-  if peer_flags & PEER_FLAG_IPV6:
-    peer_address = socket.inet_ntop(socket.AF_INET6, header[12:28])
-  else:
-    peer_address = socket.inet_ntop(socket.AF_INET, header[24:28])
-  peer_as, time_sec = struct.unpack(">LxxxxL",
-                                    header[28:40])
-
-  # If we have a version mismatch, we're pretty much done here.
-  #
-  if version != VERSION:
-    raise ValueError("Found BMP version %d, expecting %d" % (version,
-                                                             VERSION))
-
-  # Decide what to format as text
-  #
-  print_msg.append("%sBMP version %d type %s peer %s AS %d\n" %
-                   (indent_str,
-                    version,
-                    MSG_TYPE_STR[msg_type],
-                    peer_address,
-                    peer_as))
-  if verbose:
-    print_msg.append("%speer_type %s" % (indent_str,
-                                         PEER_TYPE_STR[peer_type]))
-    print_msg.append(" peer_flags 0x%x" % peer_flags)
-    print_msg.append(" router_id %s\n" % socket.inet_ntoa(header[32:36]))
-    print_msg.append("%stime %s\n" % (indent_str, time.ctime(time_sec)))
-
-  # Return the message type so the caller can decide what to do next,
-  # and the list of strings representing the collected message.
-  #
-  return msg_type, print_msg
-
-
-# A function indication whether or not a BMP Peer Down message comes
-# with a BGP notification
+# BGP header length
 #
-def PeerDownHasBgpNotification(reason):
-  """Determine whether or not a BMP Peer Down message as a BGP notification.
+BGP_HEADER_LEN = 19
 
-  Args:
-    reason: the Peer Down reason code (from the draft)
+class BMPMessage:
 
-  Returns:
-    True if there will be a BGP Notification, False if not
-  """
+    version = None
+    msg_type = None
+    peer_type = None
+    peer_flags = None
+    peer_as = None
+    peer_address = None
+    time = None
 
-  return reason == 1 or reason == 3
+    state = "INIT"
+    length = 44
+    _logger = None
+
+    def __init__(self):
+        """ Create BMPMessage
+        """
+
+        self._logger = logging.getLogger()
+
+
+    def header_from_bytes(self, header):
+
+        self.version, self.msg_type, self.peer_type, self.peer_flags = struct.unpack(">BBBB", header[0:4])
+
+        if self.peer_flags & PEER_FLAG_IPV6:
+            self.peer_address = socket.inet_ntop(socket.AF_INET6, header[12:28])
+        else:
+            self.peer_address = socket.inet_ntop(socket.AF_INET, header[24:28])
+
+        self.peer_as, time_tmp = struct.unpack(">LxxxxL", header[28:40])
+        self.time = datetime.fromtimestamp(time_tmp)
+
+        # If we have a version mismatch, we're pretty much done here.
+        #
+        if self.version != VERSION:
+            raise ValueError("Found BMP version %d, expecting %d" % (self.version, VERSION))
+
+        if self.msg_type == MSG_TYPE_ROUTE_MONITORING:
+            self._logger.debug("Got route monitoring message")
+            self.length = BGP_HEADER_LEN
+            self.state = 'PARSE_BGP_HEADER'
+
+        elif self.msg_type == MSG_TYPE_STATISTICS_REPORT:
+            self._logger.debug("Got route statistics report message")
+            self.length = 4
+            self.state = 'PARSE_BMP_STAT_REPORT'
+
+        elif self.msg_type == MSG_TYPE_PEER_DOWN_NOTIFICATION:
+            self._logger.debug("Got route peer down notification message")
+            self.length = 1
+            self.state = 'PARSE_BMP_PEER_DOWN'
+
+        else:
+            self._logger.error("unknown BMP message type %d" % self.msg_type)
+
+
+    def consume(self, data):
+        """ Consume data...
+        """
+
+        assert len(data) == self.length
+
+        if self.state == 'INIT':
+            # parse BMP header
+
+            self.header_from_bytes(data)
+
+
+        elif self.state == 'PARSE_BMP_PEER_DOWN':
+            # parse BMP peer down message
+
+            self.reason = ord(data)
+
+            # For reason 1 or 3 we also get a BGP notification
+            if self.reason == 1 or self.reason == 3:
+                self.state = 'PARSE_BGP_NOTIFICATION'
+                self.length = 2
+
+            else:
+                # done!
+                return True
+
+
+        elif self.state == 'PARSE_BGP_NOTIFICATION':
+            # parse BGP notification
+            self.notification = proto.Notification.from_bytes(data)
+
+            # done!
+            return True
+
+
+        elif self.state == 'PARSE_BGP_HEADER':
+            # parse a BGP header
+
+            self.bgp_auth, tmp_len, self.bgp_type = struct.unpack('!16sHB', data)
+            self._logger.debug("Parsed a BGP header. type: %d size: %d" % (self.bgp_type, self.length))
+            self.state = 'PARSE_BGP_UPDATE'
+            self.length = tmp_len - BGP_HEADER_LEN
+
+
+        elif self.state == 'PARSE_BGP_UPDATE':
+            # parse a BGP update
+
+            self._logger.debug("Parsing BGP update")
+            self.update = proto.Update.from_bytes(data)
+
+            # done!
+            return True
+
+
+        elif self.state == 'PARSE_BMP_STAT_REPORT':
+            # parse a BMP stat report header
+
+            self.statistics_left = struct.unpack(">L", data)[0]
+            self.statistics = {}
+            self.state = 'PARSE_BMP_STAT_ELEMENT_TYPE_LENGTH'
+            self.length = 4
+
+
+        elif self.state == 'PARSE_BMP_STAT_ELEMENT_TYPE_LENGTH':
+            # parse a BMP statistics element type & length
+
+            if self.statistics_left == 0:
+                # done!
+                return True
+
+            self.stat_elem_type, self.length = struct.unpack(">HH", data)
+            assert self.stat_elem_type in SR_TYPE_STR
+            assert self.length == 4
+
+            self.state == 'PARSE_BMP_STAT_ELEMENT_VALUE'
+
+
+        elif self.state == 'PARSE_BMP_STAT_ELEMENT_VALUE':
+            # parse a BMP statistics element value
+
+            self.statistics[SR_TYPE_STR[self.stat_elem_type]] = struct.unpack('>L', data)[0]
+            self.statistics_left -= 1
+
+            if self.statistics_left == 0:
+                return True
+
+            self.state = 'PARSE_BMP_STAT_ELEMENT_TYPE_LENGTH'
+
+
+        else:
+            # ERROR
+            self._logger.error("State not implemented: %s" % self.state)
+
+        return False
