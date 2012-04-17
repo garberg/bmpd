@@ -50,22 +50,21 @@ class BMPProtocol(Protocol):
         """ Data has been received.
         """
 
-        self._logger.debug("Got data. type: %s length: %d" % (type(data), len(data)))
         self.buf += data
 
         while len(self.buf) > self.message.length:
 
-            self._logger.debug("Iterating; buf_len: %d msg_len: %d" % (len(self.buf), self.message.length))
+#            self._logger.debug("Iterating; buf_len: %d msg_len: %d" % (len(self.buf), self.message.length))
 
             tmp = self.buf[0:self.message.length]
             self.buf = self.buf[self.message.length:]
 
             if self.message.consume(tmp):
                 # message completely parsed
-                self._logger.debug("Done with message!")
+                #self._logger.debug("Done with message!")
 
                 # save data
-                self.store.store(self.message)
+                self.store.store(self.message, self.transport.getPeer())
 
                 # create new message
                 self.message = BMP.BMPMessage()

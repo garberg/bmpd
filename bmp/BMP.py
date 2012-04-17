@@ -56,24 +56,36 @@ class BMPMessage:
 
     version = None
     msg_type = None
+#    source_address = None
     peer_type = None
     peer_flags = None
     peer_as = None
     peer_address = None
     time = None
+    raw_header = ""
+    raw_payload = ""
 
     state = "INIT"
     length = 44
     _logger = None
 
+
+    def __str__(self):
+        """ Return string representation of BMP message
+        """
+
+        return "BMP version %d message of type %d" % (self.version, self.msg_type)
+
     def __init__(self):
         """ Create BMPMessage
         """
 
-        self._logger = logging.getLogger()
+        self._logger = logging.getLogger(self.__class__.__name__)
 
 
     def header_from_bytes(self, header):
+
+        self.raw_header = header
 
         self.version, self.msg_type, self.peer_type, self.peer_flags = struct.unpack(">BBBB", header[0:4])
 
@@ -91,17 +103,17 @@ class BMPMessage:
             raise ValueError("Found BMP version %d, expecting %d" % (self.version, VERSION))
 
         if self.msg_type == MSG_TYPE_ROUTE_MONITORING:
-            self._logger.debug("Got route monitoring message")
+            #self._logger.debug("Got route monitoring message")
             self.length = BGP_HEADER_LEN
             self.state = 'PARSE_BGP_HEADER'
 
         elif self.msg_type == MSG_TYPE_STATISTICS_REPORT:
-            self._logger.debug("Got route statistics report message")
+            #self._logger.debug("Got route statistics report message")
             self.length = 4
             self.state = 'PARSE_BMP_STAT_REPORT'
 
         elif self.msg_type == MSG_TYPE_PEER_DOWN_NOTIFICATION:
-            self._logger.debug("Got route peer down notification message")
+            #self._logger.debug("Got route peer down notification message")
             self.length = 1
             self.state = 'PARSE_BMP_PEER_DOWN'
 
@@ -124,6 +136,8 @@ class BMPMessage:
         elif self.state == 'PARSE_BMP_PEER_DOWN':
             # parse BMP peer down message
 
+            self.raw_payload += data
+
             self.reason = ord(data)
 
             # For reason 1 or 3 we also get a BGP notification
@@ -140,6 +154,8 @@ class BMPMessage:
             # parse BGP notification
             self.notification = proto.Notification.from_bytes(data)
 
+            self.raw_payload += data
+
             # done!
             return True
 
@@ -147,8 +163,10 @@ class BMPMessage:
         elif self.state == 'PARSE_BGP_HEADER':
             # parse a BGP header
 
+            self.raw_payload += data
+
             self.bgp_auth, tmp_len, self.bgp_type = struct.unpack('!16sHB', data)
-            self._logger.debug("Parsed a BGP header. type: %d size: %d" % (self.bgp_type, self.length))
+            #self._logger.debug("Parsed a BGP header. type: %d size: %d" % (self.bgp_type, self.length))
             self.state = 'PARSE_BGP_UPDATE'
             self.length = tmp_len - BGP_HEADER_LEN
 
@@ -156,8 +174,13 @@ class BMPMessage:
         elif self.state == 'PARSE_BGP_UPDATE':
             # parse a BGP update
 
-            self._logger.debug("Parsing BGP update")
-            self.update = proto.Update.from_bytes(data)
+            self.raw_payload += data
+
+#            self._logger.debug("Parsing BGP update")
+#            try:
+            self.update = proto.Update.from_bytes(data, True)
+#            except Exception, e:
+#                self._logger.error("BGP update parse failed: %s" % str(e))
 
             # done!
             return True
@@ -165,6 +188,8 @@ class BMPMessage:
 
         elif self.state == 'PARSE_BMP_STAT_REPORT':
             # parse a BMP stat report header
+
+            self.raw_payload += data
 
             self.statistics_left = struct.unpack(">L", data)[0]
             self.statistics = {}
@@ -174,6 +199,8 @@ class BMPMessage:
 
         elif self.state == 'PARSE_BMP_STAT_ELEMENT_TYPE_LENGTH':
             # parse a BMP statistics element type & length
+
+            self.raw_payload += data
 
             if self.statistics_left == 0:
                 # done!
@@ -188,6 +215,8 @@ class BMPMessage:
 
         elif self.state == 'PARSE_BMP_STAT_ELEMENT_VALUE':
             # parse a BMP statistics element value
+
+            self.raw_payload += data
 
             self.statistics[SR_TYPE_STR[self.stat_elem_type]] = struct.unpack('>L', data)[0]
             self.statistics_left -= 1
