@@ -1,3 +1,10 @@
+#
+# A BMP protocol parser
+#
+# A lot of code here has been more or less stolen from
+# bmpreceiver (http://code.google.com/p/bmpreceiver/)!
+#
+
 import struct
 import socket
 import logging

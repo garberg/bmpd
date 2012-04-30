@@ -2,10 +2,6 @@
 #
 # A simple BMP server
 #
-# Alot of code here has been more or less stolen from
-# BMPReceiver (http://code.google.com/p/bmpreceiver/)!
-#
-#
 
 import logging
 
