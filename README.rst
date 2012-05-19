@@ -19,5 +19,4 @@ Requirements
 The following is required to run bmpd:
 * PostgreSQL with:
   * ip4r (http://pgfoundry.org/projects/ip4r)
-  * temporal extensions (http://pgfoundry.org/projects/temporal/)
 * PyBGP (https://launchpad.net/pybgp) modified for 32-bit AS support (https://github.com/garberg/pybgp)
