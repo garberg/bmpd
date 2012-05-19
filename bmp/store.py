@@ -125,7 +125,7 @@ class Store:
             self._logger.debug("Withdrawal of prefix %s" % pref)
             self.npref_del += 1
 
-            self.curs.execute(Q_FIND_PATH, (src.host, msg.peer_address, pref))
+            self.curs.execute(Q_FIND_PATH, (src.host, msg.peer_address, pref.prefix))
             if self.curs.rowcount > 0:
                 row = self.curs.fetchone()
                 try:
