@@ -212,7 +212,7 @@ class Store:
 
         # pickle data
         if self.dump_file is not None:
-            pickle.dump(msg)
+            pickle.dump(msg, self.dump_file)
 
 
     def store_stat_report(self, msg, src):
@@ -221,7 +221,7 @@ class Store:
 
         # pickle data
         if self.dump_file is not None:
-            pickle.dump(msg)
+            pickle.dump(msg, self.dump_file)
 
 
     def store_other(msg, src):
@@ -230,4 +230,4 @@ class Store:
 
         # pickle data
         if self.dump_file is not None:
-            pickle.dump(msg)
+            pickle.dump(msg, self.dump_file)
