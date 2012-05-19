@@ -125,6 +125,18 @@ class Store:
             self._logger.debug("Withdrawal of prefix %s" % pref)
             self.npref_del += 1
 
+            self.curs.execute(Q_FIND_PATH, (src.host, msg.peer_address, pref))
+            if self.curs.rowcount > 0:
+                row = self.curs.fetchone()
+                try:
+                    self.curs.execute(Q_INVALIDATE_PATH, (msg.time, row[0]))
+                except psycopg2.Error, e:
+                    self._logger.error("Unable to withdraw prefix %s (id %d) in message %s: %s " %
+                        (pref, row[0], msg, e))
+            else:
+                self._logger.error("Got withdrawal for unknown prefix %s from host %s, peer %s" %
+                    (pref, src.host, msg.peer_address))
+
         # nlri
         for pref in msg.update.nlri:
 
