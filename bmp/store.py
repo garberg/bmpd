@@ -20,15 +20,15 @@ Q_FIND_PATH = """SELECT id FROM adj_rib_in
         bmp_src = %s
         AND neighbor_addr = %s
         AND prefix = %s
-        AND contains(valid, CURRENT_TIMESTAMP)"""
+        AND CURRENT_TIMESTAMP >= valid_from AND CURRENT_TIMESTAMP < valid_to"""
 
 Q_INVALIDATE_PATH = """UPDATE adj_rib_in SET
-    valid = ( '[' || first(valid) || ', ' || %s || ' )' )::period
+    valid_to = %s
     WHERE id = %s"""
 
 Q_INSERT_PATH = """INSERT INTO adj_rib_in
     (
-        valid,
+        valid_from,
         bmp_src,
         neighbor_addr,
         neighbor_as,
@@ -40,7 +40,7 @@ Q_INSERT_PATH = """INSERT INTO adj_rib_in
         aspath,
         communities
     ) VALUES (
-        ('[ ' || %(time)s || ', ' || (%(time)s + interval '1000 years') || ' )')::period,
+        %(time)s,
         %(bmp_src)s,
         %(neighbor_addr)s,
         %(neighbor_as)s,

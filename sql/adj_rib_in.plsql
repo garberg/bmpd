@@ -9,7 +9,8 @@ COMMENT ON TYPE origin_type IS 'BGP origin path attribute.';
 DROP TABLE IF EXISTS adj_rib_in;
 CREATE TABLE adj_rib_in (
 	id SERIAL PRIMARY KEY,
-	valid period NOT NULL,
+	valid_from TIMESTAMP WITH TIME ZONE NOT NULL,
+	valid_to TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT 'infinity',
 	bmp_src inet NOT NULL,
 	neighbor_addr inet NOT NULL,
 	neighbor_as integer NOT NULL,
@@ -39,6 +40,7 @@ COMMENT ON COLUMN adj_rib_in.communities IS 'Communities the prefix is tagged wi
 --CREATE UNIQUE INDEX valid__bmp_src__neighbor_addr__prefix ON adj_rib_in (valid, bmp_src, neighbor_addr, prefix);
 
 CREATE INDEX bmp_src__neighbor_addr__prefix__valid ON adj_rib_in (bmp_src, neighbor_addr, prefix);
+CREATE INDEX valid_from__valid_to ON adj_rib_in (valid_from, valid_to);
 CREATE INDEX valid_idx ON adj_rib_in USING gist (valid);
 
 
