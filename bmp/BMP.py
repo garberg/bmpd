@@ -83,6 +83,7 @@ class BMPMessage:
 
         return "BMP version %d message of type %d" % (self.version, self.msg_type)
 
+
     def __init__(self):
         """ Create BMPMessage
         """
@@ -110,17 +111,14 @@ class BMPMessage:
             raise ValueError("Found BMP version %d, expecting %d" % (self.version, VERSION))
 
         if self.msg_type == MSG_TYPE_ROUTE_MONITORING:
-            #self._logger.debug("Got route monitoring message")
             self.length = BGP_HEADER_LEN
             self.state = 'PARSE_BGP_HEADER'
 
         elif self.msg_type == MSG_TYPE_STATISTICS_REPORT:
-            #self._logger.debug("Got route statistics report message")
             self.length = 4
             self.state = 'PARSE_BMP_STAT_REPORT'
 
         elif self.msg_type == MSG_TYPE_PEER_DOWN_NOTIFICATION:
-            #self._logger.debug("Got route peer down notification message")
             self.length = 1
             self.state = 'PARSE_BMP_PEER_DOWN'
 
@@ -173,7 +171,6 @@ class BMPMessage:
             self.raw_payload += data
 
             self.bgp_auth, tmp_len, self.bgp_type = struct.unpack('!16sHB', data)
-            #self._logger.debug("Parsed a BGP header. type: %d size: %d" % (self.bgp_type, self.length))
             self.state = 'PARSE_BGP_UPDATE'
             self.length = tmp_len - BGP_HEADER_LEN
 
@@ -183,11 +180,7 @@ class BMPMessage:
 
             self.raw_payload += data
 
-#            self._logger.debug("Parsing BGP update")
-#            try:
             self.update = proto.Update.from_bytes(data, True)
-#            except Exception, e:
-#                self._logger.error("BGP update parse failed: %s" % str(e))
 
             # done!
             return True

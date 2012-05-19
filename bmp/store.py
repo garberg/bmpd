@@ -6,6 +6,7 @@
 import logging
 import psycopg2
 import time
+import pickle
 
 import BMP
 
@@ -52,6 +53,9 @@ Q_INSERT_PATH = """INSERT INTO adj_rib_in
         %(communities)s
     )"""
 
+DUMP_FILE_PATH = "/tmp/bmpd.dump"
+
+
 class Store:
 
 
@@ -67,6 +71,7 @@ class Store:
     last_npref_del = 0
     nmsg = 0
     last_ts = None
+    dump_file = None
 
 
     def __init__(self):
@@ -76,6 +81,12 @@ class Store:
         self.conn = psycopg2.connect(host='127.0.0.1', user='bmp', password='bmp', database='bmp')
         self.curs = self.conn.cursor()
 
+        # open file to pickle unknown data to
+        try:
+            self.dump_file = open(DUMP_FILE_PATH, 'a')
+        except IOError, e:
+            self._logger.error("Could not open dump file: %s" % e.message)
+
 
     def store(self, msg, src):
         # save BMP message
@@ -83,18 +94,14 @@ class Store:
         if msg.msg_type == BMP.MSG_TYPE_ROUTE_MONITORING:
             self.store_route_mon(msg, src)
 
-
         elif msg.msg_type == BMP.MSG_TYPE_STATISTICS_REPORT:
-            #self._logger.debug("Got a statistics report message")
-
-            #self._logger.debug("statreport: %s" % msg.statistics)
-            raise Exception('lollerskates')
+            self.store_stat_report(msg, src)
 
         elif msg.msg_type == BMP.MSG_TYPE_PEER_DOWN_NOTIFICATION:
-            self._logger.debug("Got a peer down notification message")
+            self.store_peer_down(msg, src)
 
         else:
-            self._logger.debug("Other message")
+            self.store_other(msg, src)
 
 
 
@@ -111,6 +118,7 @@ class Store:
 
         #
         # update adj_rib_in table
+        #
 
         # withdrawals
         for pref in msg.update.withdraw:
@@ -124,6 +132,7 @@ class Store:
             start_select = time.time()
             self.curs.execute(Q_FIND_PATH, (src.host, msg.peer_address, pref.prefix))
             self.time_select += time.time() - start_select
+
             if self.curs.rowcount > 0:
                 row = self.curs.fetchone()
                 start_update = time.time()
@@ -133,6 +142,7 @@ class Store:
                     self._logger.error("Unable to invalidate prefix %s (id %d) in message %s: %s " % (pref, row[0], msg, e))
                     self._logger.error("Time: %s" % msg.time)
                     continue
+
                 self.time_update += time.time() - start_update
 
             # insert path
@@ -195,3 +205,29 @@ class Store:
 
         self.conn.commit()
 
+
+    def store_peer_down(self, msg, src):
+        """ Store a peer down message
+        """
+
+        # pickle data
+        if self.dump_file is not None:
+            pickle.dump(msg)
+
+
+    def store_stat_report(self, msg, src):
+        """ Store a statistics report
+        """
+
+        # pickle data
+        if self.dump_file is not None:
+            pickle.dump(msg)
+
+
+    def store_other(msg, src):
+        """ Store other message type
+        """
+
+        # pickle data
+        if self.dump_file is not None:
+            pickle.dump(msg)
