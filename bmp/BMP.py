@@ -102,8 +102,8 @@ class BMPMessage:
         else:
             self.peer_address = socket.inet_ntop(socket.AF_INET, header[24:28])
 
-        self.peer_as, time_tmp = struct.unpack(">LxxxxL", header[28:40])
-        self.time = datetime.fromtimestamp(time_tmp)
+        self.peer_as, ts_s_tmp, ts_us_tmp = struct.unpack(">LxxxxLL", header[28:44])
+        self.time = datetime.fromtimestamp(ts_s_tmp + ts_us_tmp * 0.000001)
 
         # If we have a version mismatch, we're pretty much done here.
         #
