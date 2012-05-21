@@ -224,6 +224,7 @@ class Store:
 
         # pickle data
         if self.dump_file is not None:
+            msg._logger = None
             pickle.dump(msg, self.dump_file)
 
 
@@ -233,6 +234,7 @@ class Store:
 
         # pickle data
         if self.dump_file is not None:
+            msg._logger = None
             pickle.dump(msg, self.dump_file)
 
 
@@ -242,4 +244,5 @@ class Store:
 
         # pickle data
         if self.dump_file is not None:
+            msg._logger = None
             pickle.dump(msg, self.dump_file)

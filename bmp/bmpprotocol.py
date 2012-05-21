@@ -57,7 +57,6 @@ class BMPProtocol(Protocol):
 
             if self.message.consume(tmp):
                 # message completely parsed
-                #self._logger.debug("Done with message!")
 
                 # save data
                 self.store.store(self.message, self.transport.getPeer())
