@@ -193,6 +193,11 @@ class BMPMessage:
 
             self.statistics_left = struct.unpack(">L", data)[0]
             self.statistics = {}
+
+            if self.statistics_left == 0:
+                self._logger.info("Got empty statistics report - should not happen")
+                return True
+
             self.state = 'PARSE_BMP_STAT_ELEMENT_TYPE_LENGTH'
             self.length = 4
 
@@ -202,15 +207,11 @@ class BMPMessage:
 
             self.raw_payload += data
 
-            if self.statistics_left == 0:
-                # done!
-                return True
-
             self.stat_elem_type, self.length = struct.unpack(">HH", data)
             assert self.stat_elem_type in SR_TYPE_STR
             assert self.length == 4
 
-            self.state == 'PARSE_BMP_STAT_ELEMENT_VALUE'
+            self.state = 'PARSE_BMP_STAT_ELEMENT_VALUE'
 
 
         elif self.state == 'PARSE_BMP_STAT_ELEMENT_VALUE':
@@ -218,7 +219,7 @@ class BMPMessage:
 
             self.raw_payload += data
 
-            self.statistics[SR_TYPE_STR[self.stat_elem_type]] = struct.unpack('>L', data)[0]
+            self.statistics[self.stat_elem_type] = struct.unpack('>L', data)[0]
             self.statistics_left -= 1
 
             if self.statistics_left == 0:

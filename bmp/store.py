@@ -222,6 +222,8 @@ class Store:
         """ Store a peer down message
         """
 
+        self._logger.debug("Got peer down from %s, peer %s" % (src.host, msg.peer_address))
+
         # pickle data
         if self.dump_file is not None:
             msg._logger = None
@@ -231,6 +233,8 @@ class Store:
     def store_stat_report(self, msg, src):
         """ Store a statistics report
         """
+
+        self._logger.debug("Got statistics report from %s, peer %s" % (src.host, msg.peer_address))
 
         # pickle data
         if self.dump_file is not None:
