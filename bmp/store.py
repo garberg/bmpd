@@ -26,6 +26,14 @@ Q_INVALIDATE_PATH = """UPDATE adj_rib_in SET
     valid_to = %s
     WHERE id = %s"""
 
+Q_INVALIDATE_NEIGHBOR = """UPDATE adj_rib_in
+    SET
+        valid_to = %s
+    WHERE
+        bmp_src = %s AND
+        neighbor_addr = %s AND
+        valid_to > CURRENT_TIMESTAMP"""
+
 Q_INSERT_PATH = """INSERT INTO adj_rib_in
     (
         valid_from,
@@ -221,6 +229,12 @@ class Store:
     def store_peer_down(self, msg, src):
         """ Store a peer down message
         """
+
+        # invalidate all prefixes from neighbor
+        self.logger._debug("Got peer down notification from %s. Invalidating all prefixes from peer %s" %
+            (src.address, msg.peer_address))
+        self.curs.execute(Q_INVALIDATE_NEIGHBOR, (msg.time, src.address, msg.peer_address))
+        self.conn.commit()
 
         # pickle data
         if self.dump_file is not None:
