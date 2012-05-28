@@ -80,6 +80,7 @@ class Store:
     nmsg = 0
     last_ts = None
     dump_file = None
+    leftover_withdrawals = None
 
 
     def __init__(self):
