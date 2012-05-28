@@ -26,6 +26,14 @@ Q_INVALIDATE_PATH = """UPDATE adj_rib_in SET
     valid_to = %s
     WHERE id = %s"""
 
+Q_INVALIDATE_NEIGHBOR = """UPDATE adj_rib_in
+    SET
+        valid_to = %s
+    WHERE
+        bmp_src = %s AND
+        neighbor_addr = %s AND
+        valid_to > CURRENT_TIMESTAMP"""
+
 Q_INSERT_PATH = """INSERT INTO adj_rib_in
     (
         valid_from,
@@ -222,7 +230,18 @@ class Store:
         """ Store a peer down message
         """
 
-        self._logger.debug("Got peer down from %s, peer %s" % (src.host, msg.peer_address))
+        # invalidate all prefixes from neighbor
+        self.logger._debug("Got peer down notification from %s. Invalidating all prefixes from peer %s" %
+            (src.address, msg.peer_address))
+
+        # write BGP packet if there is any
+        if msg.reason == 1 or msg.reason == 3:
+            self.curs.execute(Q_INSERT_RAW,
+                (msg.time, src.address, msg.peer_address, psycopg2.Binary(msg.raw_payload)))
+
+        # invalidate all prefixes received from the neighbor by src
+        self.curs.execute(Q_INVALIDATE_NEIGHBOR, (msg.time, src.address, msg.peer_address))
+        self.conn.commit()
 
         # pickle data
         if self.dump_file is not None:
