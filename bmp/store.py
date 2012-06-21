@@ -20,7 +20,7 @@ Q_FIND_PATH = """SELECT id FROM adj_rib_in
         bmp_src = %s
         AND neighbor_addr = %s
         AND prefix = %s
-        AND CURRENT_TIMESTAMP >= valid_from AND CURRENT_TIMESTAMP < valid_to"""
+        AND %s >= valid_from AND %s < valid_to"""
 
 Q_INVALIDATE_PATH = """UPDATE adj_rib_in SET
     valid_to = %s
@@ -32,11 +32,12 @@ Q_INVALIDATE_NEIGHBOR = """UPDATE adj_rib_in
     WHERE
         bmp_src = %s AND
         neighbor_addr = %s AND
-        valid_to > CURRENT_TIMESTAMP"""
+        valid_to > %s"""
 
 Q_INSERT_PATH = """INSERT INTO adj_rib_in
     (
         valid_from,
+        valid_to,
         bmp_src,
         neighbor_addr,
         neighbor_as,
@@ -48,7 +49,8 @@ Q_INSERT_PATH = """INSERT INTO adj_rib_in
         aspath,
         communities
     ) VALUES (
-        %(time)s,
+        %(valid_from)s,
+        %(valid_to)s,
         %(bmp_src)s,
         %(neighbor_addr)s,
         %(neighbor_as)s,
@@ -123,7 +125,8 @@ class Store:
 
 
         # save raw BGP packet
-        self.curs.execute(Q_INSERT_RAW, (msg.time, src.host, msg.peer_address, psycopg2.Binary(msg.raw_payload)))
+        self.curs.execute(Q_INSERT_RAW,
+            (msg.time, src.host, msg.peer_address, psycopg2.Binary(msg.raw_payload)))
 
         #
         # update adj_rib_in table
@@ -134,7 +137,8 @@ class Store:
             self._logger.debug("Withdrawal of prefix %s" % pref)
             self.npref_del += 1
 
-            self.curs.execute(Q_FIND_PATH, (src.host, msg.peer_address, pref.prefix))
+            self.curs.execute(Q_FIND_PATH,
+                (src.host, msg.peer_address, pref.prefix, msg.time, msg.time))
             if self.curs.rowcount > 0:
                 row = self.curs.fetchone()
                 try:
@@ -143,15 +147,19 @@ class Store:
                     self._logger.error("Unable to withdraw prefix %s (id %d) in message %s: %s " %
                         (pref, row[0], msg, e))
             else:
-                self._logger.error("Got withdrawal for unknown prefix %s from host %s, peer %s" %
-                    (pref, src.host, msg.peer_address))
+                # According to the BMP draft (at least versions up to 05)
+                # section "Using BMP", withdrawals sent before the Adj-rib-in
+                # has been completely synced can be safely ignored. Hopefully
+                # that's the only way we can end up here...
+                self._logger.error("Found withdrawal for unknown prefix %s from peer %s, source %s" %
+                    (pref.prefix, msg.peer_address, src.host))
 
         # nlri
         for pref in msg.update.nlri:
 
-            # does prefix exist? If so, end validity.
+            # does valid prefix exist? If so, end validity.
             start_select = time.time()
-            self.curs.execute(Q_FIND_PATH, (src.host, msg.peer_address, pref.prefix))
+            self.curs.execute(Q_FIND_PATH, (src.host, msg.peer_address, pref.prefix, msg.time, msg.time))
             self.time_select += time.time() - start_select
 
             if self.curs.rowcount > 0:
@@ -160,11 +168,13 @@ class Store:
                 try:
                     self.curs.execute(Q_INVALIDATE_PATH, (msg.time, row[0]))
                 except psycopg2.Error, e:
-                    self._logger.error("Unable to invalidate prefix %s (id %d) in message %s: %s " % (pref, row[0], msg, e))
+                    self._logger.error("Unable to invalidate prefix %s (id %d) in message %s: %s " %
+                        (pref, row[0], msg, e))
                     self._logger.error("Time: %s" % msg.time)
                     continue
 
                 self.time_update += time.time() - start_update
+
 
             # insert path
             aspath = []
@@ -177,7 +187,8 @@ class Store:
                     aspath.append(a)
 
             args = {
-                'time': msg.time,
+                'valid_from': msg.time,
+                'valid_to': 'infinity',
                 'bmp_src': src.host,
                 'neighbor_addr': msg.peer_address,
                 'neighbor_as': msg.peer_as,
@@ -241,7 +252,7 @@ class Store:
                 (msg.time, src.address, msg.peer_address, psycopg2.Binary(msg.raw_payload)))
 
         # invalidate all prefixes received from the neighbor by src
-        self.curs.execute(Q_INVALIDATE_NEIGHBOR, (msg.time, src.address, msg.peer_address))
+        self.curs.execute(Q_INVALIDATE_NEIGHBOR, (msg.time, src.address, msg.peer_address, msg.time))
         self.conn.commit()
 
         # pickle data

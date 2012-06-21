@@ -63,7 +63,6 @@ class BMPMessage:
 
     version = None
     msg_type = None
-#    source_address = None
     peer_type = None
     peer_flags = None
     peer_as = None
