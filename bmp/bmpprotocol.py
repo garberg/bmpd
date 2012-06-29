@@ -26,7 +26,7 @@ class BMPProtocol(Protocol):
         self.factory = factory
         self._logger = logging.getLogger(self.__class__.__name__)
         self.message = BMP.BMPMessage()
-        self.store = store.Store()
+        self.store = store.Store(2)
 
 
     def connectionMade(self):
@@ -58,8 +58,9 @@ class BMPProtocol(Protocol):
             if self.message.consume(tmp):
                 # message completely parsed
 
-                # save data
-                self.store.store(self.message, self.transport.getPeer())
+                # fetch message source and save data
+                self.message.source = self.transport.getPeer()
+                self.store.store(self.message)
 
                 # create new message
                 self.message = BMP.BMPMessage()
@@ -73,13 +74,6 @@ class BMPFactory(Factory):
     conn = None
     curs = None
     protocol = BMPProtocol
-
-    def __init__(self, conn):
-        """ Create a BMPFactory
-        """
-
-        self.conn = conn
-        self.curs = conn.cursor()
 
 
     def buildProtocol(self, addr):

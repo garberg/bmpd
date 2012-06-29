@@ -45,12 +45,6 @@ if __name__ == '__main__':
         print >> sys.stderr, "Must run in foreground."
         sys.exit(1)
 
-
-    # create database connection
-    conn = psycopg2.connect(host='localhost', database='bmp',
-        user='bmp', password='bmp')
-
-
     # start receiver
-    reactor.listenTCP(options.port, BMPFactory(conn))
+    reactor.listenTCP(options.port, BMPFactory())
     reactor.run()

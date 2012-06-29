@@ -59,6 +59,8 @@ PEER_DOWN_REASON_STR = {1: "Local system closed session, notification sent",
 #
 BGP_HEADER_LEN = 19
 
+_logger = logging.getLogger(__name__)
+
 class BMPMessage:
 
     version = None
@@ -70,10 +72,10 @@ class BMPMessage:
     time = None
     raw_header = ""
     raw_payload = ""
+    source = None
 
     state = "INIT"
     length = 44
-    _logger = None
 
 
     def __str__(self):
@@ -81,13 +83,6 @@ class BMPMessage:
         """
 
         return "BMP version %d message of type %d" % (self.version, self.msg_type)
-
-
-    def __init__(self):
-        """ Create BMPMessage
-        """
-
-        self._logger = logging.getLogger(self.__class__.__name__)
 
 
     def header_from_bytes(self, header):
@@ -122,7 +117,7 @@ class BMPMessage:
             self.state = 'PARSE_BMP_PEER_DOWN'
 
         else:
-            self._logger.error("unknown BMP message type %d" % self.msg_type)
+            _logger.error("unknown BMP message type %d" % self.msg_type)
 
 
     def consume(self, data):
@@ -194,7 +189,7 @@ class BMPMessage:
             self.statistics = {}
 
             if self.statistics_left == 0:
-                self._logger.info("Got empty statistics report - should not happen")
+                _logger.info("Got empty statistics report - should not happen")
                 return True
 
             self.state = 'PARSE_BMP_STAT_ELEMENT_TYPE_LENGTH'
@@ -229,6 +224,6 @@ class BMPMessage:
 
         else:
             # ERROR
-            self._logger.error("State not implemented: %s" % self.state)
+            _logger.error("State not implemented: %s" % self.state)
 
         return False

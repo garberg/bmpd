@@ -7,6 +7,8 @@ import logging
 import psycopg2
 import time
 import pickle
+from multiprocessing import Process, Queue, get_logger
+import os
 
 import BMP
 
@@ -70,27 +72,47 @@ class Store:
 
 
     _logger = None
+    _dbproc = None
+    _msg_queues = None
+    _data_queue = None
+    _proc_id = None
+
     conn = None
     time_select = 0.0
     time_update = 0.0
     time_insert = 0.0
     nmsg = 0
+    nmsg_q = 0
     npref_add = 0
     last_npref_add = 0
     npref_del = 0
     last_npref_del = 0
-    nmsg = 0
     last_ts = None
     dump_file = None
-    leftover_withdrawals = None
 
 
-    def __init__(self):
-        # Create store instance
+    def __init__(self, nproc=1):
+        """ Create store instance
 
+            The parameter nproc determines how many database processes to
+            start.
+        """
+
+        self._dbproc = {}
         self._logger = logging.getLogger(self.__class__.__name__)
-        self.conn = psycopg2.connect(host='127.0.0.1', user='bmp', password='bmp', database='bmp')
-        self.curs = self.conn.cursor()
+
+        # Create message queue for transport of received BMP messages from main
+        # process to database process. Then initialize database process.
+        self._data_queue = Queue()
+        self._msg_queues = {}
+        for i in range(nproc):
+            self._msg_queues[i] = Queue()
+            self._proc_id = i
+            dbproc = Process(target=self._init_dbproc, name="dbproc")
+            dbproc.start()
+            self._dbproc[i] = dbproc
+
+        self._proc_id = None
 
         # open file to pickle unknown data to
         try:
@@ -99,34 +121,117 @@ class Store:
             self._logger.error("Could not open dump file: %s" % e.message)
 
 
-    def store(self, msg, src):
+    def store(self, msg):
+        """ Store message
+
+            Place message in queue for transport to database process.
+        """
+
+        if self.nmsg_q % 100 == 0:
+            self._logger.debug("Placed %d messages in queue. Approx. queue length: %d" %
+                (self.nmsg_q, self._data_queue.qsize()))
+            if self._data_queue.qsize() > 20000:
+                 self._logger.info("Queue length over 20000. Pausing receiver for 10 seconds.")
+                 time.sleep(10)
+
+        msg._logger = None
+        self._data_queue.put(msg)
+        self.nmsg_q += 1
+
+
+    def close(self):
+        """ Close store
+
+            Tries to close database processes as nicely as possible
+        """
+
+        # send message to processes
+        for key in self._dbproc:
+            self._logger.info("Sending close message to process %d" % key)
+            self._msg_queues[key].put('close')
+
+        while len(self._dbproc) > 0:
+            to_del = []
+
+            for key in self._dbproc:
+                self._dbproc[key].join(1)
+                if not self._dbproc[key].is_alive():
+                    self._logger.info("Process %d dead")
+                    to_del.append(key)
+                else:
+                    self._logger.info("Join of process %d timed out")
+
+            for key in to_del:
+                del self._dbproc[key]
+
+
+    def _init_dbproc(self):
+        """ Initialize the database process
+        """
+
+        # create new logger
+        logging.basicConfig()
+        self._logger = logging.getLogger("%s-%d" % (self.__class__.__name__, self._proc_id))
+        self._logger.setLevel(logging.DEBUG)
+
+        self._logger.debug('Starting database process.')
+
+        # open database connection
+        self.conn = psycopg2.connect(host='127.0.0.1', user='bmp', password='bmp', database='bmp')
+        self.curs = self.conn.cursor()
+
+        # fetch element from queue, forever
+        n = 0
+        while True:
+
+            # Any message in message queue?
+            # Perhaps this should not be done every iteration?
+            if not self._msg_queues[self._proc_id].empty():
+                msg = self._msg_queues[self._proc_id].get()
+                if msg == 'close':
+                    break
+                else:
+                    self._logger.warning("Received unknown message %s" % msg)
+
+            # Store data from data queue
+            self._store_any(self._data_queue.get())
+            n += 1
+
+            if n % 100 == 0:
+                self._logger.debug("Fetched %d messages from queue. Approx. queue length %d." %
+                    (n, self._data_queue.qsize()))
+
+        # infinite loop ended - clean up
+
+
+    def _store_any(self, msg):
         # save BMP message
 
         if msg.msg_type == BMP.MSG_TYPE_ROUTE_MONITORING:
-            self.store_route_mon(msg, src)
+            self.store_route_mon(msg)
 
         elif msg.msg_type == BMP.MSG_TYPE_STATISTICS_REPORT:
-            self.store_stat_report(msg, src)
+            self.store_stat_report(msg)
 
         elif msg.msg_type == BMP.MSG_TYPE_PEER_DOWN_NOTIFICATION:
-            self.store_peer_down(msg, src)
+            self.store_peer_down(msg)
 
         else:
-            self.store_other(msg, src)
+            self.store_other(msg)
+
+        self.nmsg += 1
 
 
-
-    def store_route_mon(self, msg, src):
+    def store_route_mon(self, msg):
         """ Store a route monitoring message
         """
 
         if self.last_ts is None:
             self.last_ts = time.time()
 
-
         # save raw BGP packet
         self.curs.execute(Q_INSERT_RAW,
-            (msg.time, src.host, msg.peer_address, psycopg2.Binary(msg.raw_payload)))
+            (msg.time, msg.source.host, msg.peer_address, psycopg2.Binary(msg.raw_payload)))
 
         #
         # update adj_rib_in table
@@ -137,12 +242,16 @@ class Store:
             self._logger.debug("Withdrawal of prefix %s" % pref)
             self.npref_del += 1
 
+            start_select = time.time()
             self.curs.execute(Q_FIND_PATH,
-                (src.host, msg.peer_address, pref.prefix, msg.time, msg.time))
+                (msg.source.host, msg.peer_address, pref.prefix, msg.time, msg.time))
+            self.time_select += time.time() - start_select
             if self.curs.rowcount > 0:
                 row = self.curs.fetchone()
                 try:
+                    start_update = time.time()
                     self.curs.execute(Q_INVALIDATE_PATH, (msg.time, row[0]))
+                    self.time_update += time.time() - start_update
                 except psycopg2.Error, e:
                     self._logger.error("Unable to withdraw prefix %s (id %d) in message %s: %s " %
                         (pref, row[0], msg, e))
@@ -152,14 +261,14 @@ class Store:
                 # has been completely synced can be safely ignored. Hopefully
                 # that's the only way we can end up here...
                 self._logger.error("Found withdrawal for unknown prefix %s from peer %s, source %s" %
-                    (pref.prefix, msg.peer_address, src.host))
+                    (pref.prefix, msg.peer_address, msg.source.host))
 
         # nlri
         for pref in msg.update.nlri:
 
             # does valid prefix exist? If so, end validity.
             start_select = time.time()
-            self.curs.execute(Q_FIND_PATH, (src.host, msg.peer_address, pref.prefix, msg.time, msg.time))
+            self.curs.execute(Q_FIND_PATH, (msg.source.host, msg.peer_address, pref.prefix, msg.time, msg.time))
             self.time_select += time.time() - start_select
 
             if self.curs.rowcount > 0:
@@ -189,7 +298,7 @@ class Store:
             args = {
                 'valid_from': msg.time,
                 'valid_to': 'infinity',
-                'bmp_src': src.host,
+                'bmp_src': msg.source.host,
                 'neighbor_addr': msg.peer_address,
                 'neighbor_as': msg.peer_as,
                 'next_hop': msg.update.pathattr.get('nexthop').value,
@@ -216,9 +325,7 @@ class Store:
 
             self.npref_add += 1
 
-        self.nmsg += 1
-
-        if self.nmsg % 10000 == 0:
+        if self.nmsg % 1000 == 0:
             now = time.time()
             self._logger.debug('nmsg %d %.1f msg/s; npref_add %d %.1f pref/s npref_del %d %.1f pref/s select: %f update: %f insert: %f' % (
                 self.nmsg,
@@ -238,21 +345,21 @@ class Store:
         self.conn.commit()
 
 
-    def store_peer_down(self, msg, src):
+    def store_peer_down(self, msg):
         """ Store a peer down message
         """
 
         # invalidate all prefixes from neighbor
         self.logger._debug("Got peer down notification from %s. Invalidating all prefixes from peer %s" %
-            (src.address, msg.peer_address))
+            (msg.source.address, msg.peer_address))
 
         # write BGP packet if there is any
         if msg.reason == 1 or msg.reason == 3:
             self.curs.execute(Q_INSERT_RAW,
-                (msg.time, src.address, msg.peer_address, psycopg2.Binary(msg.raw_payload)))
+                (msg.time, msg.source.address, msg.peer_address, psycopg2.Binary(msg.raw_payload)))
 
         # invalidate all prefixes received from the neighbor by src
-        self.curs.execute(Q_INVALIDATE_NEIGHBOR, (msg.time, src.address, msg.peer_address, msg.time))
+        self.curs.execute(Q_INVALIDATE_NEIGHBOR, (msg.time, msg.source.address, msg.peer_address, msg.time))
         self.conn.commit()
 
         # pickle data
@@ -261,11 +368,11 @@ class Store:
             pickle.dump(msg, self.dump_file)
 
 
-    def store_stat_report(self, msg, src):
+    def store_stat_report(self, msg):
         """ Store a statistics report
         """
 
-        self._logger.debug("Got statistics report from %s, peer %s" % (src.host, msg.peer_address))
+        self._logger.debug("Got statistics report from %s, peer %s" % (msg.source.host, msg.peer_address))
 
         # pickle data
         if self.dump_file is not None:
@@ -273,7 +380,7 @@ class Store:
             pickle.dump(msg, self.dump_file)
 
 
-    def store_other(msg, src):
+    def store_other(self, msg):
         """ Store other message type
         """
 
