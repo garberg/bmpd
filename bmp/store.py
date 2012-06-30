@@ -174,7 +174,7 @@ class Store:
         self._logger = logging.getLogger("%s-%d" % (self.__class__.__name__, self._proc_id))
         self._logger.setLevel(logging.DEBUG)
 
-        self._logger.debug('Starting database process.')
+        self._logger.debug('Starting database process, pid %d.' % os.getpid())
 
         # open database connection
         self.conn = psycopg2.connect(host='127.0.0.1', user='bmp', password='bmp', database='bmp')
@@ -364,7 +364,6 @@ class Store:
 
         # pickle data
         if self.dump_file is not None:
-            msg._logger = None
             pickle.dump(msg, self.dump_file)
 
 
@@ -374,11 +373,6 @@ class Store:
 
         self._logger.debug("Got statistics report from %s, peer %s" % (msg.source.host, msg.peer_address))
 
-        # pickle data
-        if self.dump_file is not None:
-            msg._logger = None
-            pickle.dump(msg, self.dump_file)
-
 
     def store_other(self, msg):
         """ Store other message type
@@ -386,5 +380,4 @@ class Store:
 
         # pickle data
         if self.dump_file is not None:
-            msg._logger = None
             pickle.dump(msg, self.dump_file)
