@@ -6,11 +6,13 @@
 import sys
 import optparse
 import logging
+import daemon
 
 import psycopg2
 from twisted.internet import reactor
 
 from bmp.bmpprotocol import BMPFactory
+from bmp import store
 
 
 if __name__ == '__main__':
@@ -25,6 +27,8 @@ if __name__ == '__main__':
         action="store_true", default=False, help="Run process in debug mode")
     parser.add_option('-p', '--port', dest='port', default=20000,
         help='Port to listen to')
+    parser.add_option('-w', '--workers', dest='workers', default=1,
+        help="Number of worker processes")
 
     (options, arguments) = parser.parse_args()
 
@@ -36,15 +40,19 @@ if __name__ == '__main__':
     else:
         logger.setLevel(logging.INFO)
 
-
     logger.info("Starting bmpd")
 
+    # create message storage facility
+    store = store.Store(int(options.workers))
 
-    # daemonize?
-    if not options.foreground:
-        print >> sys.stderr, "Must run in foreground."
-        sys.exit(1)
+    # foreground?
+    if options.foreground:
+        # start receiver in foreground
+        reactor.listenTCP(options.port, BMPFactory(store))
+        reactor.run()
 
-    # start receiver
-    reactor.listenTCP(options.port, BMPFactory())
-    reactor.run()
+    else:
+        # start daemonized receiver
+        with daemon.DaemonContext():
+            reactor.listenTCP(options.port, BMPFactory(store))
+            reactor.run()

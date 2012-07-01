@@ -19,4 +19,7 @@ Requirements
 The following is required to run bmpd:
 * PostgreSQL with:
   * ip4r (http://pgfoundry.org/projects/ip4r)
-* PyBGP (https://launchpad.net/pybgp) modified for 32-bit AS support (https://github.com/garberg/pybgp)
+* PyBGP (https://launchpad.net/pybgp) modified for 32-bit AS support and
+  OrderedDicts which are serializable over a multiprocessing.Queue
+  (https://github.com/garberg/pybgp)
+* python-daemon (http://pypi.python.org/pypi/python-daemon/)
